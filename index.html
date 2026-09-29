@@ -223,7 +223,7 @@ function renderHold(){
   el.innerHTML='';
   const cell=(k,v,cls,sub)=>{const w=document.createElement('div');const a=document.createElement('div');a.className='k';a.textContent=k;const b=document.createElement('div');b.className='v n'+(cls?' '+cls:'');b.textContent=v;w.append(a,b);if(sub){const c=document.createElement('div');c.className='sub';c.textContent=sub;w.appendChild(c)}el.appendChild(w)};
   cell('실제 본전가',fmt(be)+'원','big','세금·수수료 포함');
-  cell('증권사 평단',fmt(d.A)+'원',null,Math.abs(d.A-be)>1?'본전가와 '+fmt(be-d.A)+'원 차이':'');
+  cell('증권사 평단',fmt(d.A)+'원',null,Math.abs(d.A-be)>1?(st.trades.some(t=>t.side==='sell')?'판 주식 손익 빠진 값 · '+fmt(be-d.A)+'원 차이':'차이 '+fmt(be-d.A)+'원 = 팔 때 세금·수수료'):'');
   cell('보유 주식',fmt(d.N)+'주');
   cell('넣은 원금',fmt(d.C/1e4)+'만');
   if(d.K>1)cell('손에 쥔 현금',fmt(d.K/1e4,1)+'만',null,'판 돈 중 아직 안 산 돈');
