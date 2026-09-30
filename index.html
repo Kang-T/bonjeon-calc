@@ -96,6 +96,13 @@ dialog h3{margin:0 0 12px;font-size:17px}
 @media (prefers-color-scheme:dark){.stephead .real{color:#0E1318}}
 .summary{margin-top:10px;padding:12px;border-radius:12px;background:var(--soft);font-size:14px;line-height:1.6}
 .summary b{font-size:18px}
+.sim{width:100%;margin-top:8px;font-size:13px}
+.sim th,.sim td{padding:6px 4px}
+.sim td.be{font-weight:800;color:var(--acc)}
+.why{font-size:12.5px;line-height:1.55;color:var(--ink2);background:var(--acc-soft);border-radius:10px;padding:8px 10px;margin:0 0 10px}
+.why b{color:var(--ink)}
+.exbtn{width:100%;margin-bottom:10px;border-color:var(--acc);color:var(--acc)}
+.lg-add{padding:2px 10px;font-size:12px;font-weight:600;border-radius:999px;margin-left:auto}
 .chain{font-size:13px;color:var(--ink2);margin-top:4px;word-break:keep-all}
 .hint{font-size:12px;color:var(--mut);margin-top:4px}
 /* 차트 */
@@ -150,6 +157,7 @@ input.flash{animation:fl 1.2s}
 
   <section class="card">
     <h2>팔고 다시 사면? — 단계별로 이어서</h2>
+    <button class="exbtn" id="btnExample">선으로 예시 채우기 (위 선에서 팔고, 아래 선에서 다시 사기)</button>
     <div id="steps"></div>
     <button id="btnAddStep" style="width:100%;margin-top:10px">+ 다음 단계 추가</button>
     <div class="summary" id="summary"></div>
@@ -311,6 +319,7 @@ function renderSteps(){
     if(i===0){const b=el('button','real','실제로 함');b.onclick=openStepReal;head.appendChild(b)}
     if(st.plan.length>1){const b=el('button','ghost','지우기');b.onclick=()=>{st.plan.splice(i,1);save();renderSteps();computeSteps()};head.appendChild(b)}
     c.appendChild(head);
+    if(p.why){const w=el('div','why');w.innerHTML=p.why;c.appendChild(w)}
     const row=el('div','row');
     const fS=el('div','f'); fS.appendChild(el('label',null,'매도가 (원)')); const iS=el('input');iS.inputMode='numeric';iS.placeholder='1700';iS.value=p.s||'';fS.appendChild(iS);
     const fB=el('div','f'); fB.appendChild(el('label',null,'재매수가 (원)')); const iB=el('input');iB.inputMode='numeric';iB.placeholder='비우면 현금 보유';iB.value=p.b||'';fB.appendChild(iB);
@@ -324,7 +333,8 @@ function renderSteps(){
     const setQ=v=>{const N=runPlan(st).out[i].start.N;iQ.value=String(Math.max(0,Math.min(N,Math.round(v))));p.q=iQ.value;save();computeSteps()};
     m.onclick=()=>setQ((num(iQ.value)||0)-1000); pl.onclick=()=>setQ((num(iQ.value)||0)+1000);
     [iS,iB,iQ].forEach(x=>x.addEventListener('focus',()=>{activeStep=i}));
-    iS.oninput=()=>{p.s=iS.value;save();computeSteps()}; iB.oninput=()=>{p.b=iB.value;save();computeSteps()}; iQ.oninput=()=>{p.q=iQ.value;save();computeSteps()};
+    const unwhy=()=>{if(p.why){delete p.why;const w=c.querySelector('.why');if(w)w.remove()}};
+    iS.oninput=()=>{p.s=iS.value;unwhy();save();computeSteps()}; iB.oninput=()=>{p.b=iB.value;unwhy();save();computeSteps()}; iQ.oninput=()=>{p.q=iQ.value;save();computeSteps()};
     box.appendChild(c);
   });
   $('btnAddStep').style.display=st.plan.length>=MAXSTEP?'none':'';
@@ -344,7 +354,7 @@ function computeSteps(){
     add('판 돈',fmt(o.proceeds/1e4,1)+'만 (확정 손익 '+sign(o.saleGain/1e4,1)+'만)');
     if(o.B>0)add('다시 사는 주식',fmt(o.r)+'주 × '+fmt(o.B)+'원'); else add('다시 사는 주식','안 삼 — 현금 보유');
     add('보유 주식',fmt(o.d.N)+'주 ('+sign(o.d.N-o.start.N)+')');
-    if(o.d.K>1)add('손에 쥔 현금',fmt(o.d.K/1e4,1)+'만');
+    if(o.d.K>=1)add('손에 쥔 현금',o.d.K<1e4?fmt(o.d.K)+'원 (재매수 뒤 남은 돈)':fmt(o.d.K/1e4,1)+'만');
     add('토스 앱에 보일 평단',fmt(o.d.A)+'원');
     r.appendChild(lines);
     if(o.B>o.Sx){r.appendChild(el('div','warn','재매수가가 매도가보다 높습니다 — 판 뒤 값이 오른 경우라 본전가가 올라갑니다.'))}
@@ -355,8 +365,11 @@ function computeSteps(){
   if(res.d0.N>0&&done.length){
     const beN=breakeven(res.end), tot=beN-be0;
     const line1=el('div'); line1.append('처음 '+fmt(be0)+'원 → 마지막 ',el('b',null,fmt(beN)+'원'),'  ('+sign(tot/be0*100,1)+'%)'); sm.appendChild(line1);
-    sm.appendChild(el('div','chain','흐름: '+[fmt(be0)].concat(done.map(o=>fmt(o.be))).join(' → ')+'원'));
-    sm.appendChild(el('div','chain','주식 '+fmt(res.d0.N)+' → '+fmt(res.end.N)+'주 · 확정 손익 누계 '+sign((res.end.realized-res.d0.realized)/1e4,1)+'만'+(res.end.K>1?' · 현금 '+fmt(res.end.K/1e4,1)+'만':'')));
+    const tw=el('div','tw'), t=el('table','sim'); tw.appendChild(t); sm.appendChild(tw);
+    const hr=t.insertRow(); ['','주식 수','토스 평단','실제 본전가','현금'].forEach(h=>hr.appendChild(el('th',null,h)));
+    const addRow=(name,d)=>{const r=t.insertRow();[[name,''],[fmt(d.N)+'주','n'],[fmt(d.A)+'원','n'],[fmt(breakeven(d))+'원','n be'],[d.K<1?'—':d.K<1e4?fmt(d.K)+'원':fmt(d.K/1e4,1)+'만','n']].forEach(([v,c])=>{const td=r.insertCell();td.className=c;td.textContent=v})};
+    addRow('지금',res.d0); res.out.forEach((o,i)=>{if(o.ok)addRow((i+1)+'단계 후',o.d)});
+    sm.appendChild(el('div','chain','확정 손익 누계 '+sign((res.end.realized-res.d0.realized)/1e4,1)+'만 · 토스 평단은 판 주식 손익이 빠진 값이라 실제 본전가보다 낮게 보입니다.'));
   }
   renderGrid(res);
 }
@@ -433,6 +446,7 @@ async function renderChart(){
     chartMsg(e.message==='nofile'?'이 종목의 차트 데이터가 아직 없습니다. 집 맥북 수집기에 종목코드 '+st.code+'를 추가해야 합니다.':'차트 데이터를 불러오지 못했습니다. 인터넷 연결을 확인하세요.');return}
   if(S()!==st)return;
   const m=cw.querySelector('.cmsg'); if(m)m.remove(); cv.style.display='';
+  if(st.plan.length===1&&!st.plan[0].s&&!st.plan[0].q&&!st.plan[0].b&&derive(st).N>0)fillExample(true);
   const u=new Date(j.updated), ago=(Date.now()-u)/864e5;
   $('cfresh').textContent=(isNaN(u)?'':(u.getMonth()+1)+'/'+u.getDate()+' '+String(u.getHours()).padStart(2,'0')+':'+String(u.getMinutes()).padStart(2,'0')+' 기준')+(ago>4?' · 오래된 데이터':'')+(CH.iv!=='d'&&j.intraday_from?' · 분봉은 '+(+j.intraday_from.slice(5,7))+'/'+(+j.intraday_from.slice(8,10))+'부터':'');
   draw();
@@ -511,7 +525,38 @@ function draw(){
 function renderLegend(L,C){const g=$('legend');g.innerHTML='';if(!C)return;
   const has=k=>L.some(l=>l.kind===k);
   const item=(k,txt,dash)=>{if(!has(k))return;const s=el('span');const i=el('i',dash?'dash':'');i.style.borderTopColor=C[k];s.append(i,txt);g.appendChild(s)};
-  item('res','위쪽 선(저항)');item('sup','아래쪽 선(지지)');item('be','실제 본전가',1);item('mine','내가 그은 선',1)}
+  item('res','위쪽 선(저항)');item('sup','아래쪽 선(지지)');item('be','실제 본전가',1);item('mine','내가 그은 선',1);
+  const b=el('button','lg-add','+ 내 선 (가격 입력)');b.onclick=addLineByPrice;g.appendChild(b)}
+function addLineByPrice(){const st=S();const v=num(prompt('선을 그을 가격(원)을 넣으세요','')||'');if(!(v>0))return;
+  const p=toTick(v);if(!st.lines.includes(p))st.lines.push(p);if(st.lines.length>8)st.lines.shift();save();draw();toast(fmt(p)+'원에 내 선을 그었습니다')}
+
+/* 선으로 예시 채우기 — 선생님 규칙: 지금 가격 바로 위 선에서 팔고, 판 가격 바로 아래 선에서 다시 산다.
+   종가와 1% 이내로 붙은 선은 건너뜀. 수량 = 그 시점 보유의 25%(1,000주 단위 내림). 2단계까지. */
+const EX_STEPS=2, EX_PCT=.25, EX_GAP=.01;
+function fillExample(auto){
+  const st=S(), j=CH.data[st.code];
+  if(!j||!j.d||!j.d.length){if(!auto)alert('차트 데이터가 있어야 선으로 예시를 만들 수 있습니다.');return}
+  const lines=[...new Set(j.levels.map(o=>o.p).concat(st.lines))].sort((a,b)=>a-b);
+  const above=p=>lines.find(l=>l>p*(1+EX_GAP)), below=p=>[...lines].reverse().find(l=>l<p*(1-EX_GAP));
+  const close=j.d[j.d.length-1][4];
+  let d=derive(st); if(!(d.N>0)){if(!auto)alert('설정에서 보유 주식 수를 먼저 넣어 주세요.');return}
+  const plan=[]; let from=close, fromTxt='종가 '+fmt(close)+'원';
+  for(let k=0;k<EX_STEPS;k++){
+    const sx=above(from); if(!sx)break; const bx=below(sx); if(!bx)break;
+    const q=d.N>=1000?Math.max(1000,Math.floor(d.N*EX_PCT/1000)*1000):d.N;
+    const why='<b>예시 · 선생님 규칙</b><br>매도가 '+fmt(sx)+' = '+fromTxt+' 바로 위 선 · 재매수가 '+fmt(bx)+' = '+fmt(sx)+'원 바로 아래 선 · 수량 = 보유 '+fmt(d.N)+'주의 25%<br>먼저 '+fmt(sx)+'원까지 올라 팔린 뒤, '+fmt(bx)+'원까지 내려와야 다시 삽니다.';
+    plan.push({s:String(sx),q:String(q),b:String(bx),why});
+    d=step(d,sx,q,bx).d; from=bx; fromTxt='앞 단계 재매수가 '+fmt(bx)+'원';
+  }
+  if(!plan.length){if(!auto)alert(above(close)?'팔 가격 아래에 선이 없어 예시를 만들 수 없습니다.':'지금 가격 위에 선이 없어 예시를 만들 수 없습니다. 차트에 내 선을 그어 보세요.');return}
+  const has=st.plan.some(p=>p.s||p.q||p.b);
+  if(!auto&&has&&!confirm('지금 넣은 단계 값을 선 기준 예시로 바꿀까요?'))return;
+  st.plan=plan; activeStep=0; save(); renderSteps(); computeSteps();
+  toast(auto?'선 기준 예시를 채웠습니다 (값은 고쳐 쓰세요)':plan.length+'단계 예시를 채웠습니다');
+}
+$('btnExample').onclick=()=>{const st=S();
+  if(!/^\d{6}$/.test(st.code||'')){alert('설정에서 종목코드를 넣어야 차트 선을 쓸 수 있습니다.');return}
+  if(CH.data[st.code])fillExample(false); else loadData(st.code).then(()=>fillExample(false)).catch(()=>alert('차트 데이터를 불러오지 못했습니다.'))};
 
 /* 누르기 → 가격 상자 */
 function closePop(){const p=cw.querySelector('.pop');if(p)p.remove();if(CH.sel){CH.sel=null;draw()}}
