@@ -85,6 +85,19 @@ dialog h3{margin:0 0 12px;font-size:17px}
 .seg button.on.buy{background:var(--good);border-color:var(--good);color:#fff}
 .empty{text-align:center;color:var(--mut);font-size:14px;padding:6px 0}
 .formula{font-size:12.5px;color:var(--ink2);background:var(--soft);border-radius:10px;padding:10px 12px;margin-top:8px;line-height:1.6}
+.step{border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px;background:var(--card)}
+.step+.step{position:relative}
+.step+.step::before{content:"↓";position:absolute;top:-17px;left:50%;transform:translateX(-50%);color:var(--mut);font-size:14px}
+.stephead{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.stephead .no{font-weight:800;font-size:15px;flex:1}
+.stephead .from{font-size:12px;color:var(--mut);font-weight:500;margin-left:6px}
+.stephead button{padding:5px 10px;font-size:13px;font-weight:600}
+.stephead .real{background:var(--good);border-color:var(--good);color:#fff}
+@media (prefers-color-scheme:dark){.stephead .real{color:#0E1318}}
+.summary{margin-top:10px;padding:12px;border-radius:12px;background:var(--soft);font-size:14px;line-height:1.6}
+.summary b{font-size:18px}
+.chain{font-size:13px;color:var(--ink2);margin-top:4px;word-break:keep-all}
+.hint{font-size:12px;color:var(--mut);margin-top:4px}
 </style>
 </head>
 <body>
@@ -100,23 +113,16 @@ dialog h3{margin:0 0 12px;font-size:17px}
   </section>
 
   <section class="card">
-    <h2>팔고 다시 사면?</h2>
-    <div class="row">
-      <div class="f"><label for="sellPrice">매도가 (원)</label><input id="sellPrice" inputmode="numeric" placeholder="1700"></div>
-      <div class="f"><label for="buyPrice">재매수가 (원)</label><input id="buyPrice" inputmode="numeric" placeholder="1400"></div>
-    </div>
-    <div class="f">
-      <label for="sellQty">매도 주식 수</label>
-      <div class="stepper"><button id="qMinus" aria-label="1000주 빼기">−</button><input id="sellQty" inputmode="numeric" placeholder="8000"><button id="qPlus" aria-label="1000주 더하기">+</button></div>
-      <div class="chips"><button data-p="25">25%</button><button data-p="50">50%</button><button data-p="75">75%</button><button data-p="100">전부</button></div>
-    </div>
-    <div class="result" id="result"></div>
+    <h2>팔고 다시 사면? — 단계별로 이어서</h2>
+    <div id="steps"></div>
+    <button id="btnAddStep" style="width:100%;margin-top:10px">+ 다음 단계 추가</button>
+    <div class="summary" id="summary"></div>
   </section>
 
   <section class="card">
-    <h2>한눈에 — 재매수가 × 매도 주식 수 → 본전가</h2>
+    <h2>한눈에 — 마지막 단계의 재매수가 × 매도 주식 수 → 본전가</h2>
     <div class="tw"><table id="grid"></table></div>
-    <p class="cap">초록 = 지금 본전가보다 낮아짐, 빨강 = 높아짐(판 뒤 값이 올라서 비싸게 다시 산 경우). 파란 줄이 입력한 재매수가.</p>
+    <p class="cap">초록 = 그 단계 시작 본전가보다 낮아짐, 빨강 = 높아짐(판 뒤 값이 올라서 비싸게 다시 산 경우). 파란 줄이 입력한 재매수가.</p>
   </section>
 
   <section class="card">
@@ -164,160 +170,214 @@ dialog h3{margin:0 0 12px;font-size:17px}
   <div class="actions" style="margin-top:12px"><button id="tCancel">닫기</button><button class="pri" id="tSave">기록</button></div>
 </dialog>
 
+<dialog id="dlgStep">
+  <h3>1단계를 실제로 했어요</h3>
+  <p class="cap" style="margin:0 0 10px">체결가가 다르면 고쳐서 기록하세요. 기록하면 이 단계는 목록에서 빠지고 다음 단계가 1단계가 됩니다.</p>
+  <div class="row">
+    <div class="f"><label for="xSellQty">매도 주식 수</label><input id="xSellQty" inputmode="numeric"></div>
+    <div class="f"><label for="xSellPrice">매도 체결가</label><input id="xSellPrice" inputmode="numeric"></div>
+  </div>
+  <div class="row">
+    <div class="f"><label for="xBuyQty">재매수 주식 수</label><input id="xBuyQty" inputmode="numeric"></div>
+    <div class="f"><label for="xBuyPrice">재매수 체결가</label><input id="xBuyPrice" inputmode="numeric"></div>
+  </div>
+  <p class="cap" style="margin:0 0 6px">아직 다시 안 샀으면 재매수 칸을 비우세요. 판 돈은 "손에 쥔 현금"으로 남습니다.</p>
+  <div class="f"><label for="xDate">날짜</label><input class="name" id="xDate" type="date"></div>
+  <div class="actions" style="margin-top:12px"><button id="xCancel">닫기</button><button class="pri" id="xSave">기록</button></div>
+</dialog>
 <script>
 (function(){
 const KEY='bonjeon.v1';
+const MAXSTEP=5;
 const $=id=>document.getElementById(id);
 const fmt=(x,d=0)=>isFinite(x)?Number(x).toLocaleString('ko-KR',{maximumFractionDigits:d,minimumFractionDigits:d}):'—';
-const num=s=>{const v=parseFloat(String(s||'').replace(/[^0-9.\-]/g,''));return isFinite(v)?v:NaN};
+const sign=(x,d=0)=>(x>0?'+':'')+fmt(x,d);
+const num=s=>{const v=parseFloat(String(s==null?'':s).replace(/[^0-9.\-]/g,''));return isFinite(v)?v:NaN};
 const today=()=>new Date().toISOString().slice(0,10);
+const el=(t,c,txt)=>{const e=document.createElement(t);if(c)e.className=c;if(txt!=null)e.textContent=txt;return e};
 
 let db;
 try{db=JSON.parse(localStorage.getItem(KEY))}catch(e){}
 if(!db||!Array.isArray(db.stocks)||!db.stocks.length){
-  db={cur:0,stocks:[{name:'크라우드웍스',shares:0,avg:0,capital:0,sellFee:0.23,buyFee:0.015,trades:[],inputs:{}}]};
+  db={cur:0,stocks:[{name:'크라우드웍스',shares:0,avg:0,capital:0,sellFee:0.23,buyFee:0.015,trades:[],plan:[]}]};
+}
+for(const st of db.stocks){ // 이전 버전(한 번 계산) → 단계 목록으로 옮김
+  if(!Array.isArray(st.plan)){const i=st.inputs||{};st.plan=[{s:i.s||'',q:i.q||'',b:i.b||''}];delete st.inputs}
+  if(!st.plan.length)st.plan=[{s:'',q:'',b:''}];
 }
 const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(db))}catch(e){}};
 const S=()=>db.stocks[db.cur];
 
-/* 현재 상태: 설정값에서 출발해 거래 기록을 차례로 적용 */
+/* 설정값에서 출발해 실제 거래 기록을 차례로 적용한 현재 상태 */
 function derive(st){
   let N=+st.shares||0, C=+st.capital||(+st.shares||0)*(+st.avg||0), K=0, A=+st.avg||0, realized=0;
   const sf=(+st.sellFee||0)/100, bf=(+st.buyFee||0)/100;
   for(const t of st.trades){
     const q=+t.qty, p=+t.price; if(!(q>0&&p>0))continue;
-    if(t.side==='sell'){
-      const qq=Math.min(q,N); const proceeds=qq*p*(1-sf);
-      K+=proceeds; realized+=proceeds-qq*A; N-=qq;
-    }else{
-      const cost=q*p*(1+bf); const useK=Math.min(K,cost);
-      K-=useK; C+=cost-useK; A=N+q>0?(A*N+q*p)/(N+q):0; N+=q;
-    }
+    if(t.side==='sell'){const qq=Math.min(q,N);const pr=qq*p*(1-sf);K+=pr;realized+=pr-qq*A;N-=qq}
+    else{const cost=q*p*(1+bf);const useK=Math.min(K,cost);K-=useK;C+=cost-useK;A=N+q>0?(A*N+q*p)/(N+q):0;N+=q}
   }
   return {N,C,K,A,realized,sf,bf};
 }
-const breakeven=(C,K,N,sf)=>N>0?(C-K)/N/(1-sf):NaN;
+const breakeven=d=>d.N>0?(d.C-d.K)/d.N/(1-d.sf):NaN;
 
-function simulate(d,S,q,B){
-  q=Math.max(0,Math.min(q,d.N));
-  const proceeds=q*S*(1-d.sf);
-  const r=Math.floor(proceeds/(B*(1+d.bf)));
-  const spent=r*B*(1+d.bf);
-  const N2=d.N-q+r, K2=d.K+proceeds-spent;
-  const be2=breakeven(d.C,K2,N2,d.sf);
-  const broker2=N2>0?(d.A*(d.N-q)+r*B)/N2:NaN;
+/* 한 단계: q주를 Sx에 팔고, 판 돈으로 B에 다시 산다(B 없으면 현금 보유) */
+function step(d,Sx,q,B){
+  q=Math.max(0,Math.min(q||0,d.N));
+  const proceeds=q*Sx*(1-d.sf);
   const saleGain=proceeds-q*d.A;
-  return {q,r,N2,K2,be2,broker2,saleGain,proceeds,leftover:proceeds-spent};
+  let N=d.N-q, K=d.K+proceeds, A=d.A, r=0;
+  if(B>0){r=Math.floor(proceeds/(B*(1+d.bf)));const spent=r*B*(1+d.bf);K-=spent;A=N+r>0?(A*N+r*B)/(N+r):0;N+=r}
+  const nd={N,C:d.C,K,A,realized:d.realized+saleGain,sf:d.sf,bf:d.bf};
+  return {d:nd,q,r,proceeds,saleGain,be:breakeven(nd)};
+}
+/* 단계 목록 전체를 이어서 계산 */
+function runPlan(st){
+  const d0=derive(st); let d=d0; const out=[];
+  for(const p of st.plan){
+    const Sx=num(p.s), q=num(p.q), B=num(p.b);
+    if(!(Sx>0&&q>0)){out.push({ok:false,start:d});continue}
+    const r=step(d,Sx,q,B); out.push({ok:true,start:d,Sx,B,...r}); d=r.d;
+  }
+  return {d0,out,end:d};
 }
 
-/* 화면 */
+/* ── 화면 ── */
 function renderTabs(){
-  const el=$('tabs'); el.innerHTML='';
-  db.stocks.forEach((st,i)=>{const b=document.createElement('button');b.className='tab'+(i===db.cur?' on':'');b.textContent=st.name||('종목 '+(i+1));
-    b.onclick=()=>{db.cur=i;save();loadInputs();renderAll()};el.appendChild(b)});
+  const t=$('tabs'); t.innerHTML='';
+  db.stocks.forEach((st,i)=>{const b=el('button','tab'+(i===db.cur?' on':''),st.name||('종목 '+(i+1)));b.onclick=()=>{db.cur=i;save();renderAll()};t.appendChild(b)});
 }
 function renderHold(){
-  const st=S(), d=derive(st), be=breakeven(d.C,d.K,d.N,d.sf);
-  const el=$('hold');
-  if(!(d.N>0)&&!(+st.shares>0)){el.innerHTML='<div class="empty" style="grid-column:1/-1">설정에서 보유 주식 수와 평단을 먼저 넣어 주세요.</div>';return}
-  el.innerHTML='';
-  const cell=(k,v,cls,sub)=>{const w=document.createElement('div');const a=document.createElement('div');a.className='k';a.textContent=k;const b=document.createElement('div');b.className='v n'+(cls?' '+cls:'');b.textContent=v;w.append(a,b);if(sub){const c=document.createElement('div');c.className='sub';c.textContent=sub;w.appendChild(c)}el.appendChild(w)};
+  const st=S(), d=derive(st), be=breakeven(d), h=$('hold'); h.innerHTML='';
+  if(!(d.N>0)&&!(+st.shares>0)){h.appendChild(el('div','empty','설정에서 보유 주식 수와 평단을 먼저 넣어 주세요.')).style.gridColumn='1/-1';return}
+  const cell=(k,v,cls,sub)=>{const w=el('div');w.append(el('div','k',k),el('div','v n'+(cls?' '+cls:''),v));if(sub)w.appendChild(el('div','sub',sub));h.appendChild(w)};
   cell('실제 본전가',fmt(be)+'원','big','세금·수수료 포함');
   cell('증권사 평단',fmt(d.A)+'원',null,Math.abs(d.A-be)>1?(st.trades.some(t=>t.side==='sell')?'판 주식 손익 빠진 값 · '+fmt(be-d.A)+'원 차이':'차이 '+fmt(be-d.A)+'원 = 팔 때 세금·수수료'):'');
   cell('보유 주식',fmt(d.N)+'주');
   cell('넣은 원금',fmt(d.C/1e4)+'만');
   if(d.K>1)cell('손에 쥔 현금',fmt(d.K/1e4,1)+'만',null,'판 돈 중 아직 안 산 돈');
-  if(Math.abs(d.realized)>1)cell('확정 손익',(d.realized>0?'+':'')+fmt(d.realized/1e4,1)+'만');
+  if(Math.abs(d.realized)>1)cell('확정 손익',sign(d.realized/1e4,1)+'만');
 }
-function renderResult(){
-  const st=S(), d=derive(st), be=breakeven(d.C,d.K,d.N,d.sf);
-  const Sx=num($('sellPrice').value), B=num($('buyPrice').value), q=num($('sellQty').value);
-  const el=$('result'); el.innerHTML='';
-  if(!(d.N>0)){return}
-  if(!(Sx>0&&B>0&&q>0)){const p=document.createElement('div');p.className='empty';p.textContent='매도가 · 재매수가 · 매도 주식 수를 넣으면 계산됩니다.';el.appendChild(p);return}
-  const r=simulate(d,Sx,q,B); const diff=r.be2-be; const good=diff<0;
-  const hero=document.createElement('div');hero.className='hero '+(good?'good':'bad');
-  hero.innerHTML='<div><div class="k">팔고 다시 산 뒤 실제 본전가</div><div class="v n"></div></div><div class="d n"></div>';
-  hero.querySelector('.v').textContent=fmt(r.be2)+'원';
-  hero.querySelector('.d').textContent=(good?'▼ ':'▲ ')+fmt(Math.abs(diff))+'원 ('+(diff>0?'+':'')+fmt(diff/be*100,1)+'%)';
-  el.appendChild(hero);
-  const lines=document.createElement('div');lines.className='lines';
-  const add=(k,v)=>{const w=document.createElement('div');const a=document.createElement('span');a.textContent=k;const b=document.createElement('span');b.className='n';b.textContent=v;w.append(a,b);lines.appendChild(w)};
-  add('지금 본전가',fmt(be)+'원');
-  add('토스 앱에 보일 평단',fmt(r.broker2)+'원');
-  add('이번 매도 확정 손익',(r.saleGain>0?'+':'')+fmt(r.saleGain/1e4,1)+'만');
-  add('판 돈 → 다시 사는 주식',fmt(r.proceeds/1e4,1)+'만 → '+fmt(r.r)+'주');
-  add('거래 뒤 보유 주식',fmt(r.N2)+'주 ('+(r.N2-d.N>=0?'+':'')+fmt(r.N2-d.N)+')');
-  add('매도가 기준 본전까지',(r.be2/Sx-1>0?'+':'')+fmt((r.be2/Sx-1)*100,1)+'%');
-  el.appendChild(lines);
-  if(B>Sx){const w=document.createElement('div');w.className='warn';w.textContent='재매수가가 매도가보다 높습니다 — 판 뒤 값이 오른 경우라 본전가가 올라갑니다.';el.appendChild(w)}
-  if(r.broker2<r.be2-1){const w=document.createElement('div');w.className='warn';w.textContent='토스 평단('+fmt(r.broker2)+'원)에 팔면 앱에는 본전으로 보여도 실제로는 '+fmt((r.be2-r.broker2)*r.N2*(1-d.sf)/1e4,1)+'만 원 손해입니다.';el.appendChild(w)}
+
+/* 단계 카드: 구조는 단계 수가 바뀔 때만 다시 그리고, 입력 중에는 결과 칸만 갱신 */
+function renderSteps(){
+  const st=S(), box=$('steps'); box.innerHTML='';
+  st.plan.forEach((p,i)=>{
+    const c=el('div','step'); c.dataset.i=i;
+    const head=el('div','stephead'); const no=el('div','no',(i+1)+'단계'); no.appendChild(el('span','from',i===0?'지금 보유에서':'앞 단계 결과에서')); head.appendChild(no);
+    if(i===0){const b=el('button','real','실제로 함');b.onclick=openStepReal;head.appendChild(b)}
+    if(st.plan.length>1){const b=el('button','ghost','지우기');b.onclick=()=>{st.plan.splice(i,1);save();renderSteps();computeSteps()};head.appendChild(b)}
+    c.appendChild(head);
+    const row=el('div','row');
+    const fS=el('div','f'); fS.appendChild(el('label',null,'매도가 (원)')); const iS=el('input');iS.inputMode='numeric';iS.placeholder='1700';iS.value=p.s||'';fS.appendChild(iS);
+    const fB=el('div','f'); fB.appendChild(el('label',null,'재매수가 (원)')); const iB=el('input');iB.inputMode='numeric';iB.placeholder='비우면 현금 보유';iB.value=p.b||'';fB.appendChild(iB);
+    row.append(fS,fB); c.appendChild(row);
+    const fQ=el('div','f'); fQ.appendChild(el('label',null,'매도 주식 수'));
+    const sp=el('div','stepper'); const m=el('button',null,'−'); const iQ=el('input');iQ.inputMode='numeric';iQ.placeholder='8000';iQ.value=p.q||''; const pl=el('button',null,'+');
+    m.setAttribute('aria-label','1000주 빼기');pl.setAttribute('aria-label','1000주 더하기'); sp.append(m,iQ,pl); fQ.appendChild(sp);
+    const chips=el('div','chips'); [25,50,75,100].forEach(v=>{const b=el('button',null,v===100?'전부':v+'%');b.onclick=()=>{const N=runPlan(st).out[i].start.N;setQ(v===100?N:Math.max(1000,Math.floor(N*v/100/1000)*1000))};chips.appendChild(b)});
+    fQ.appendChild(chips); fQ.appendChild(el('div','hint','')); c.appendChild(fQ);
+    c.appendChild(el('div','result'));
+    const setQ=v=>{const N=runPlan(st).out[i].start.N;iQ.value=String(Math.max(0,Math.min(N,Math.round(v))));p.q=iQ.value;save();computeSteps()};
+    m.onclick=()=>setQ((num(iQ.value)||0)-1000); pl.onclick=()=>setQ((num(iQ.value)||0)+1000);
+    iS.oninput=()=>{p.s=iS.value;save();computeSteps()}; iB.oninput=()=>{p.b=iB.value;save();computeSteps()}; iQ.oninput=()=>{p.q=iQ.value;save();computeSteps()};
+    box.appendChild(c);
+  });
+  $('btnAddStep').style.display=st.plan.length>=MAXSTEP?'none':'';
 }
-function renderGrid(){
-  const st=S(), d=derive(st), be=breakeven(d.C,d.K,d.N,d.sf);
-  const Sx=num($('sellPrice').value), B=num($('buyPrice').value), q=num($('sellQty').value);
-  const t=$('grid'); t.innerHTML='';
-  if(!(d.N>0&&Sx>0&&B>0)){const tr=t.insertRow();const td=tr.insertCell();td.className='empty';td.textContent='매도가와 재매수가를 넣으면 표가 나옵니다.';return}
-  const r1000=x=>Math.max(1000,Math.floor(x/1000)*1000);
-  let cols=[q>0?Math.min(q,d.N):r1000(d.N*.25), r1000(d.N*.5), d.N].filter((v,i,a)=>v>0&&a.indexOf(v)===i);
-  const step=Sx>=1000?(Sx>=5000?(Sx>=20000?500:100):50):10;
-  let rows=[B-2*step,B-step,B,B+step,Sx+step].filter(v=>v>0);
-  rows=[...new Set(rows)].sort((a,b)=>a-b);
-  const h=t.insertRow(); const th0=document.createElement('th');th0.textContent='재매수가';h.appendChild(th0);
-  for(const c of cols){const th=document.createElement('th');th.textContent=(c===d.N?'전부 ':'')+fmt(c)+'주';h.appendChild(th)}
-  for(const B2 of rows){
-    const tr=t.insertRow(); if(B2===B)tr.className='me';
-    const td0=tr.insertCell();td0.className='n';td0.textContent=fmt(B2)+'원';
-    for(const c of cols){const s=simulate(d,Sx,c,B2);const td=tr.insertCell();td.className='n '+(s.be2<be?'good':'bad');td.textContent=fmt(s.be2)}
+function computeSteps(){
+  const st=S(), res=runPlan(st), be0=breakeven(res.d0);
+  const cards=[...document.querySelectorAll('#steps .step')];
+  res.out.forEach((o,i)=>{
+    const c=cards[i]; if(!c)return; const r=c.querySelector('.result'); r.innerHTML='';
+    c.querySelector('.hint').textContent='이 단계 시작 보유 '+fmt(o.start.N)+'주';
+    if(!(res.d0.N>0))return;
+    if(!o.ok){r.appendChild(el('div','empty','매도가와 매도 주식 수를 넣으면 계산됩니다.'));return}
+    const prev=breakeven(o.start), diff=o.be-prev, good=diff<0;
+    const hero=el('div','hero '+(good?'good':'bad')); const L=el('div'); L.append(el('div','k',(i+1)+'단계 뒤 실제 본전가'),el('div','v n',fmt(o.be)+'원'));
+    hero.append(L,el('div','d n',(good?'▼ ':'▲ ')+fmt(Math.abs(diff))+'원 ('+sign(diff/prev*100,1)+'%)')); r.appendChild(hero);
+    const lines=el('div','lines'); const add=(k,v)=>{const w=el('div');w.append(el('span',null,k),el('span','n',v));lines.appendChild(w)};
+    add('판 돈',fmt(o.proceeds/1e4,1)+'만 (확정 손익 '+sign(o.saleGain/1e4,1)+'만)');
+    if(o.B>0)add('다시 사는 주식',fmt(o.r)+'주 × '+fmt(o.B)+'원'); else add('다시 사는 주식','안 삼 — 현금 보유');
+    add('보유 주식',fmt(o.d.N)+'주 ('+sign(o.d.N-o.start.N)+')');
+    if(o.d.K>1)add('손에 쥔 현금',fmt(o.d.K/1e4,1)+'만');
+    add('토스 앱에 보일 평단',fmt(o.d.A)+'원');
+    r.appendChild(lines);
+    if(o.B>o.Sx){r.appendChild(el('div','warn','재매수가가 매도가보다 높습니다 — 판 뒤 값이 오른 경우라 본전가가 올라갑니다.'))}
+  });
+  // 요약
+  const sm=$('summary'); sm.innerHTML='';
+  const done=res.out.filter(o=>o.ok);
+  if(res.d0.N>0&&done.length){
+    const beN=breakeven(res.end), tot=beN-be0;
+    const line1=el('div'); line1.append('처음 '+fmt(be0)+'원 → 마지막 ',el('b',null,fmt(beN)+'원'),'  ('+sign(tot/be0*100,1)+'%)'); sm.appendChild(line1);
+    sm.appendChild(el('div','chain','흐름: '+[fmt(be0)].concat(done.map(o=>fmt(o.be))).join(' → ')+'원'));
+    sm.appendChild(el('div','chain','주식 '+fmt(res.d0.N)+' → '+fmt(res.end.N)+'주 · 확정 손익 누계 '+sign((res.end.realized-res.d0.realized)/1e4,1)+'만'+(res.end.K>1?' · 현금 '+fmt(res.end.K/1e4,1)+'만':'')));
   }
+  renderGrid(res);
+}
+function renderGrid(res){
+  const st=S(); res=res||runPlan(st);
+  const t=$('grid'); t.innerHTML='';
+  const last=[...res.out].reverse().find(o=>o.ok);
+  if(!(res.d0.N>0)||!last||!(last.B>0)){const td=t.insertRow().insertCell();td.className='empty';td.textContent='단계에 매도가·재매수가를 넣으면 마지막 단계 기준으로 표가 나옵니다.';return}
+  const d=last.start, be=breakeven(d), Sx=last.Sx, B=last.B, q=last.q;
+  const r1000=x=>Math.max(1000,Math.floor(x/1000)*1000);
+  const cols=[Math.min(q,d.N),r1000(d.N*.5),d.N].filter((v,i,a)=>v>0&&a.indexOf(v)===i);
+  const stp=Sx>=1000?(Sx>=5000?(Sx>=20000?500:100):50):10;
+  const rows=[...new Set([B-2*stp,B-stp,B,B+stp,Sx+stp].filter(v=>v>0))].sort((a,b)=>a-b);
+  const h=t.insertRow(); h.appendChild(el('th',null,'재매수가'));
+  cols.forEach(c=>h.appendChild(el('th',null,(c===d.N?'전부 ':'')+fmt(c)+'주')));
+  rows.forEach(B2=>{const tr=t.insertRow(); if(B2===B)tr.className='me'; const c0=tr.insertCell();c0.className='n';c0.textContent=fmt(B2)+'원';
+    cols.forEach(c=>{const s=step(d,Sx,c,B2);const td=tr.insertCell();td.className='n '+(s.be<be?'good':'bad');td.textContent=fmt(s.be)})});
 }
 function renderHist(){
-  const st=S(), el=$('hist'); el.innerHTML='';
-  if(!st.trades.length){const p=document.createElement('div');p.className='empty';p.textContent='아직 기록이 없습니다.';el.appendChild(p);return}
-  st.trades.slice().reverse().forEach(t=>{
-    const w=document.createElement('div');w.className='h';
-    const s=document.createElement('span');s.className='side '+t.side;s.textContent=t.side==='sell'?'매도':'매수';
-    const m=document.createElement('span');m.className='n';m.textContent=(t.date||'')+'  '+fmt(t.qty)+'주 × '+fmt(t.price)+'원';
-    const b=document.createElement('button');b.textContent='지우기';b.onclick=()=>{if(confirm('이 기록을 지울까요?')){st.trades=st.trades.filter(x=>x.id!==t.id);save();renderAll()}};
-    w.append(s,m,b);el.appendChild(w)});
+  const st=S(), h=$('hist'); h.innerHTML='';
+  if(!st.trades.length){h.appendChild(el('div','empty','아직 기록이 없습니다.'));return}
+  st.trades.slice().reverse().forEach(t=>{const w=el('div','h');w.append(el('span','side '+t.side,t.side==='sell'?'매도':'매수'),el('span','n',(t.date||'')+'  '+fmt(t.qty)+'주 × '+fmt(t.price)+'원'));
+    const b=el('button',null,'지우기');b.onclick=()=>{if(confirm('이 기록을 지울까요?')){st.trades=st.trades.filter(x=>x.id!==t.id);save();renderAll()}};w.appendChild(b);h.appendChild(w)});
 }
-function renderAll(){renderTabs();renderHold();renderResult();renderGrid();renderHist()}
+function renderAll(){renderTabs();renderHold();renderSteps();computeSteps();renderHist()}
 
-/* 입력 */
-function storeInputs(){S().inputs={s:$('sellPrice').value,b:$('buyPrice').value,q:$('sellQty').value};save()}
-function loadInputs(){const i=S().inputs||{};$('sellPrice').value=i.s||'';$('buyPrice').value=i.b||'';$('sellQty').value=i.q||''}
-['sellPrice','buyPrice','sellQty'].forEach(id=>$(id).addEventListener('input',()=>{storeInputs();renderResult();renderGrid()}));
-const setQ=v=>{const d=derive(S());$('sellQty').value=String(Math.max(0,Math.min(d.N,v)));storeInputs();renderResult();renderGrid()};
-$('qMinus').onclick=()=>setQ((num($('sellQty').value)||0)-1000);
-$('qPlus').onclick=()=>setQ((num($('sellQty').value)||0)+1000);
-document.querySelectorAll('.chips button').forEach(b=>b.onclick=()=>{const d=derive(S());const p=+b.dataset.p;setQ(p===100?d.N:Math.max(1000,Math.floor(d.N*p/100/1000)*1000))});
+$('btnAddStep').onclick=()=>{const st=S();if(st.plan.length>=MAXSTEP)return;const last=st.plan[st.plan.length-1]||{};st.plan.push({s:'',q:last.q||'',b:''});save();renderSteps();computeSteps();
+  const cards=document.querySelectorAll('#steps .step');cards[cards.length-1].scrollIntoView({behavior:'smooth',block:'center'})};
 
 /* 설정 */
 const dS=$('dlgSettings');
 function openSettings(){const st=S();$('sName').value=st.name||'';$('sShares').value=st.shares||'';$('sAvg').value=st.avg||'';$('sCapital').value=st.capital||'';$('sSellFee').value=st.sellFee;$('sBuyFee').value=st.buyFee;dS.showModal()}
-$('btnSettings').onclick=openSettings;
-$('sCancel').onclick=()=>dS.close();
+$('btnSettings').onclick=openSettings; $('sCancel').onclick=()=>dS.close();
 $('sSave').onclick=()=>{const st=S();st.name=$('sName').value.trim()||st.name;st.shares=num($('sShares').value)||0;st.avg=num($('sAvg').value)||0;
-  const c=num($('sCapital').value);st.capital=c>0?c:Math.round(st.shares*st.avg);st.sellFee=isFinite(num($('sSellFee').value))?num($('sSellFee').value):0.23;st.buyFee=isFinite(num($('sBuyFee').value))?num($('sBuyFee').value):0.015;save();dS.close();renderAll()};
-$('sNew').onclick=()=>{if(db.stocks.length>=3){alert('종목은 3개까지 저장됩니다.');return}db.stocks.push({name:'종목 '+(db.stocks.length+1),shares:0,avg:0,capital:0,sellFee:0.23,buyFee:0.015,trades:[],inputs:{}});db.cur=db.stocks.length-1;save();loadInputs();renderAll();openSettings()};
-$('sDel').onclick=()=>{if(db.stocks.length<=1){alert('마지막 종목은 지울 수 없습니다. 값을 고쳐 쓰세요.');return}if(confirm((S().name||'이 종목')+'을(를) 지울까요? 기록도 함께 지워집니다.')){db.stocks.splice(db.cur,1);db.cur=0;save();dS.close();loadInputs();renderAll()}};
+  const c=num($('sCapital').value);st.capital=c>0?c:Math.round(st.shares*st.avg);
+  const sf=num($('sSellFee').value),bf=num($('sBuyFee').value);st.sellFee=isFinite(sf)?sf:0.23;st.buyFee=isFinite(bf)?bf:0.015;save();dS.close();renderAll()};
+$('sNew').onclick=()=>{if(db.stocks.length>=3){alert('종목은 3개까지 저장됩니다.');return}db.stocks.push({name:'종목 '+(db.stocks.length+1),shares:0,avg:0,capital:0,sellFee:0.23,buyFee:0.015,trades:[],plan:[{s:'',q:'',b:''}]});db.cur=db.stocks.length-1;save();renderAll();openSettings()};
+$('sDel').onclick=()=>{if(db.stocks.length<=1){alert('마지막 종목은 지울 수 없습니다. 값을 고쳐 쓰세요.');return}if(confirm((S().name||'이 종목')+'을(를) 지울까요? 기록도 함께 지워집니다.')){db.stocks.splice(db.cur,1);db.cur=0;save();dS.close();renderAll()}};
 
-/* 거래 기록 */
+/* 1단계를 실제로 함 → 거래 기록으로 옮김 */
+const dX=$('dlgStep');
+function openStepReal(){const st=S(),res=runPlan(st),o=res.out[0];
+  if(!o||!o.ok){alert('1단계의 매도가와 매도 주식 수를 먼저 넣어 주세요.');return}
+  $('xSellQty').value=o.q;$('xSellPrice').value=o.Sx;$('xBuyQty').value=o.B>0?o.r:'';$('xBuyPrice').value=o.B>0?o.B:'';$('xDate').value=today();dX.showModal()}
+$('xCancel').onclick=()=>dX.close();
+$('xSave').onclick=()=>{const st=S(),date=$('xDate').value||today();
+  const sq=num($('xSellQty').value),sp=num($('xSellPrice').value),bq=num($('xBuyQty').value),bp=num($('xBuyPrice').value);
+  if(!(sq>0&&sp>0)){alert('매도 주식 수와 체결가를 넣어 주세요.');return}
+  const id=()=>Date.now()+''+Math.random().toString(36).slice(2,6);
+  st.trades.push({id:id(),side:'sell',qty:sq,price:sp,date});
+  if(bq>0&&bp>0)st.trades.push({id:id(),side:'buy',qty:bq,price:bp,date});
+  st.plan.shift(); if(!st.plan.length)st.plan=[{s:'',q:'',b:''}];
+  save();dX.close();renderAll()};
+
+/* 개별 거래 기록 */
 const dT=$('dlgTrade'); let tSide='sell';
 function setSide(s){tSide=s;$('tSell').className='sell'+(s==='sell'?' on':'');$('tBuy').className='buy'+(s==='buy'?' on':'')}
-function openTrade(side){setSide(side);const Sx=num($('sellPrice').value),B=num($('buyPrice').value),q=num($('sellQty').value);
-  if(side==='sell'){$('tQty').value=q>0?q:'';$('tPrice').value=Sx>0?Sx:''}
-  else{const d=derive(S());const r=(Sx>0&&B>0&&q>0)?simulate(d,Sx,q,B).r:0;$('tQty').value=r>0?r:'';$('tPrice').value=B>0?B:''}
-  $('tDate').value=today();dT.showModal()}
-$('btnRecSell').onclick=()=>openTrade('sell');
-$('btnRecBuy').onclick=()=>openTrade('buy');
-$('tSell').onclick=()=>setSide('sell');$('tBuy').onclick=()=>setSide('buy');
-$('tCancel').onclick=()=>dT.close();
+function openTrade(side){setSide(side);$('tQty').value='';$('tPrice').value='';$('tDate').value=today();dT.showModal()}
+$('btnRecSell').onclick=()=>openTrade('sell'); $('btnRecBuy').onclick=()=>openTrade('buy');
+$('tSell').onclick=()=>setSide('sell'); $('tBuy').onclick=()=>setSide('buy'); $('tCancel').onclick=()=>dT.close();
 $('tSave').onclick=()=>{const q=num($('tQty').value),p=num($('tPrice').value);if(!(q>0&&p>0)){alert('주식 수와 체결가를 넣어 주세요.');return}
   const st=S();if(!(+st.shares>0)&&tSide==='sell'){alert('먼저 설정에서 보유 주식을 넣어 주세요.');return}
   st.trades.push({id:Date.now()+''+Math.random().toString(36).slice(2,6),side:tSide,qty:q,price:p,date:$('tDate').value||today()});save();dT.close();renderAll()};
 
-loadInputs();renderAll();
+save(); renderAll();
 if(!(+S().shares>0))setTimeout(openSettings,300);
 if('serviceWorker' in navigator){addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}))}
 })();
