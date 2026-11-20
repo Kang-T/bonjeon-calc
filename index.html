@@ -485,7 +485,9 @@ async function renderChart(){
     chartMsg(e.message==='nofile'?'이 종목의 차트 데이터가 아직 없습니다. 집 맥북 수집기에 종목코드 '+st.code+'를 추가해야 합니다.':'차트 데이터를 불러오지 못했습니다. 인터넷 연결을 확인하세요.');return}
   if(S()!==st)return;
   const m=cw.querySelector('.cmsg'); if(m)m.remove(); cv.style.display='';
-  if(st.plan.length===1&&!st.plan[0].s&&!st.plan[0].q&&!st.plan[0].b&&derive(st).N>0)fillExample(true);
+  const blank=st.plan.length===1&&!st.plan[0].s&&!st.plan[0].q&&!st.plan[0].b;
+  const staleEx=st.plan.every(p=>p.why)&&st.plan[0].base!==exBase(j);   // 손대지 않은 예시인데 종가가 바뀜
+  if((blank||staleEx)&&derive(st).N>0)fillExample(true,staleEx);
   renderFresh(j);
   draw();
 }
@@ -571,26 +573,28 @@ function addLineByPrice(){const st=S();const v=num(prompt('선을 그을 가격(
 /* 선으로 예시 채우기 — 선생님 규칙: 지금 가격 바로 위 선에서 팔고, 판 가격 바로 아래 선에서 다시 산다.
    종가와 1% 이내로 붙은 선은 건너뜀. 수량 = 그 시점 보유의 25%(1,000주 단위 내림). 2단계까지. */
 const EX_STEPS=2, EX_PCT=.25, EX_GAP=.01;
-function fillExample(auto){
+const exBase=j=>{const b=j.d[j.d.length-1];return b[0]+'/'+b[4]};
+function fillExample(auto,stale){
   const st=S(), j=CH.data[st.code];
   if(!j||!j.d||!j.d.length){if(!auto)alert('차트 데이터가 있어야 선으로 예시를 만들 수 있습니다.');return}
   const lines=[...new Set(j.levels.map(o=>o.p).concat(st.lines))].sort((a,b)=>a-b);
   const above=p=>lines.find(l=>l>p*(1+EX_GAP)), below=p=>[...lines].reverse().find(l=>l<p*(1-EX_GAP));
   const close=j.d[j.d.length-1][4];
   let d=derive(st); if(!(d.N>0)){if(!auto)alert('설정에서 보유 주식 수를 먼저 넣어 주세요.');return}
-  const plan=[]; let from=close, fromTxt='종가 '+fmt(close)+'원';
+  const day=j.d[j.d.length-1][0], plan=[]; let from=close, fromTxt=(+day.slice(5,7))+'/'+(+day.slice(8,10))+(new Date(j.updated)<new Date(day+'T15:31:00+09:00')?' 장중 가격 ':' 종가 ')+fmt(close)+'원';
   for(let k=0;k<EX_STEPS;k++){
     const sx=above(from); if(!sx)break; const bx=below(sx); if(!bx)break;
     const q=d.N>=1000?Math.max(1000,Math.floor(d.N*EX_PCT/1000)*1000):d.N;
     const why='<b>예시 · 선생님 규칙</b><br>매도가 '+fmt(sx)+' = '+fromTxt+' 바로 위 선 · 재매수가 '+fmt(bx)+' = '+fmt(sx)+'원 바로 아래 선 · 수량 = 보유 '+fmt(d.N)+'주의 25%<br>먼저 '+fmt(sx)+'원까지 올라 팔린 뒤, '+fmt(bx)+'원까지 내려와야 다시 삽니다.';
-    plan.push({s:String(sx),q:String(q),b:String(bx),why});
+    plan.push({s:String(sx),q:String(q),b:String(bx),why,base:exBase(j)});
     d=step(d,sx,q,bx).d; from=bx; fromTxt='앞 단계 재매수가 '+fmt(bx)+'원';
   }
-  if(!plan.length){if(!auto)alert(above(close)?'팔 가격 아래에 선이 없어 예시를 만들 수 없습니다.':'지금 가격 위에 선이 없어 예시를 만들 수 없습니다. 차트에 내 선을 그어 보세요.');return}
+  if(!plan.length){if(stale){st.plan=[{s:'',q:'',b:''}];save();renderSteps();computeSteps();toast('가격이 바뀌어 예전 예시를 지웠습니다 (지금 가격 위·아래에 선이 없음)')}
+    if(!auto)alert(above(close)?'팔 가격 아래에 선이 없어 예시를 만들 수 없습니다.':'지금 가격 위에 선이 없어 예시를 만들 수 없습니다. 차트에 내 선을 그어 보세요.');return}
   const has=st.plan.some(p=>p.s||p.q||p.b);
   if(!auto&&has&&!confirm('지금 넣은 단계 값을 선 기준 예시로 바꿀까요?'))return;
   st.plan=plan; activeStep=0; save(); renderSteps(); computeSteps();
-  toast(auto?'선 기준 예시를 채웠습니다 (값은 고쳐 쓰세요)':plan.length+'단계 예시를 채웠습니다');
+  toast(stale?'종가가 바뀌어 예시를 새로 채웠습니다':auto?'선 기준 예시를 채웠습니다 (값은 고쳐 쓰세요)':plan.length+'단계 예시를 채웠습니다');
 }
 $('btnExample').onclick=()=>{const st=S();
   if(!/^\d{6}$/.test(st.code||'')){alert('설정에서 종목코드를 넣어야 차트 선을 쓸 수 있습니다.');return}
